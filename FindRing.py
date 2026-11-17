@@ -7,7 +7,12 @@ import os
 
 # Open camera
 def open_camera(cam_id=1):
-    cap = cv2.VideoCapture(cam_id, cv2.CAP_AVFOUNDATION)
+    cap = cv2.VideoCapture(cam_id)
+
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+
     return cap
 
 # Get frame from camera
