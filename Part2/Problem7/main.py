@@ -23,6 +23,12 @@ for t in times:
 
 actual_points = np.array(actual_points)
 
+def distance_to_circle(points):
+    """Shortest distance to the circle, independent of traversal speed."""
+    radial = np.hypot(points[:, 1], points[:, 2] - 120) - 32
+    return np.hypot(points[:, 0] - 150, radial)
+
+
 # Radial deviation from the desired circle
 radial_error = np.abs(
     np.sqrt(actual_points[:, 1]**2 +
@@ -33,9 +39,17 @@ radial_error = np.abs(
 x_error = np.abs(actual_points[:, 0] - 150)
 
 # Total distance to the desired circle
-path_error = np.sqrt(radial_error**2 + x_error**2)
+path_error = distance_to_circle(actual_points)
 
 if __name__ == "__main__":
     print("Maximum radial error (mm):", np.max(radial_error))
     print("Maximum X deviation (mm):", np.max(x_error))
     print("Maximum path error (mm):", np.max(path_error))
+    from Part2.Problem7.improve import improved_points_9, improved_points_37
+
+    print("\nDistance to the desired circle (sampled every 0.02 s):")
+    print("Knots   Maximum (mm)   Mean (mm)")
+    for n_knots, points in [(5, actual_points), (9, improved_points_9),
+                            (37, improved_points_37)]:
+        error = distance_to_circle(points)
+        print(f"{n_knots:5d}   {error.max():12.6f}   {error.mean():9.6f}")

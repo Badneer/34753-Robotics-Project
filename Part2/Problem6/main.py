@@ -139,6 +139,13 @@ if __name__ == "__main__":
             )
 
     print("All boundary conditions satisfied!")
-    print("Coefficient array shape:", coefficients.shape)
+    print("Joint configurations at knots (rad):")
+    print(np.round(q_knots, 5))
     print("Joint velocities at knots (rad/s):")
     print(np.round(qdot_knots, 5))
+    print("\nPolynomial coefficients, highest power first:")
+    print("Segment Joint        a5        a4        a3        a2        a1        a0")
+    for segment, name in enumerate("ABCD"):
+        for joint in range(4):
+            c = coefficients[segment, joint, ::-1]
+            print(f"   {name}      {joint+1}  " + " ".join(f"{value:9.6f}" for value in c))

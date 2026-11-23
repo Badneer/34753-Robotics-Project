@@ -1,126 +1,103 @@
+"""Problem 7: improve the circle approximation with 9 and 37 knots.
+
+Keep the 8 s duration and quintic interpolation from Problem 6, but add
+equally spaced circle points to shorten the segments. Interior velocities
+are tangent to the circle with speed 2*pi*32/8 mm/s (about 25.1).
+Start/end velocities and all knot joint accelerations are zero.
+This follows the report; Problem 6 keeps its prescribed 27 mm/s velocities.
+"""
+
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
-from Part1.Problem3.main import inverse_kinematics
-
 import sympy as sp
 
-from Part1.Problem4.main import J4, q1, q2, q3, q4
+from Part1.Problem1.main import T04, q1, q2, q3, q4
+from Part1.Problem2.main import inverse_kinematics
+from Part1.Problem4.main import J4
 from Part2.Problem6.main import polynomial_coefficients
 
-# 9 knot points
-phi = np.linspace(0, 2*np.pi, 9)
 
-# Cartesian positions
-points = np.column_stack((
-    np.full(9, 150),
-    32 * np.cos(phi),
-    120 + 32 * np.sin(phi)
-))
-
-# Joint configurations
-q_knots = inverse_kinematics(points)
-
-print("Knot positions:", points.shape)
-print("Joint configurations:", q_knots.shape)
-print("Knot angles (degrees):", np.degrees(phi))
-
-# Desired Cartesian velocities
-v_knots = np.column_stack((
-    np.zeros(9),
-    -27 * np.sin(phi),
-    27 * np.cos(phi)
-))
-
-v_knots[0] = 0
-v_knots[-1] = 0
-
-# Numerical Jacobian
-J4_func = sp.lambdify((q1, q2, q3, q4), J4, "numpy")
-
-# Calculate joint velocities
-qdot_knots = []
-
-for qi, vi in zip(q_knots, v_knots):
-    J = J4_func(*qi)
-
-    J_reduced = np.vstack((
-        J[:3, :],
-        [0, 1, 1, 1]
+def circle_coefficients(n_knots):
+    """Find quintic joint polynomials between n_knots circle points."""
+    phi = np.linspace(0, 2*np.pi, n_knots)
+    points = np.column_stack((
+        np.full(n_knots, 150), 32*np.cos(phi), 120 + 32*np.sin(phi)
     ))
+    q_knots = inverse_kinematics(points)
+    speed = 2*np.pi*32 / 8
+    v_knots = np.column_stack((
+        np.zeros(n_knots), -speed*np.sin(phi), speed*np.cos(phi)
+    ))
+    v_knots[0] = 0
+    v_knots[-1] = 0
 
-    qdot_knots.append(
-        np.linalg.solve(J_reduced, np.append(vi, 0))
-    )
+    jacobian = sp.lambdify((q1, q2, q3, q4), J4, "numpy")
+    qdot_knots = []
+    for angles, velocity in zip(q_knots, v_knots):
+        reduced = np.vstack((jacobian(*angles)[:3], [0, 1, 1, 1]))
+        qdot_knots.append(np.linalg.solve(reduced, np.append(velocity, 0)))
+    qdot_knots = np.array(qdot_knots)
 
-qdot_knots = np.array(qdot_knots)
-
-print("Joint velocities shape:", qdot_knots.shape)
-print("Joint velocities (rad/s):")
-print(np.round(qdot_knots, 5))
-
-
-# 8 segments, 4 joints, 6 coefficients
-coefficients = np.zeros((8, 4, 6))
-
-for segment in range(8):
-    for joint in range(4):
-        coefficients[segment, joint] = polynomial_coefficients(
-            q_knots[segment, joint],
-            q_knots[segment + 1, joint],
-            qdot_knots[segment, joint],
-            qdot_knots[segment + 1, joint],
-            T=1
-        )
+    duration = 8 / (n_knots - 1)
+    coefficients = np.zeros((n_knots - 1, 4, 6))
+    for segment in range(n_knots - 1):
+        for joint in range(4):
+            coefficients[segment, joint] = polynomial_coefficients(
+                q_knots[segment, joint], q_knots[segment + 1, joint],
+                qdot_knots[segment, joint], qdot_knots[segment + 1, joint],
+                T=duration
+            )
+    return coefficients
 
 
-# Improved trajectory over 8 seconds
-def improved_trajectory(t):
+coefficients_9 = circle_coefficients(9)
+coefficients_37 = circle_coefficients(37)
+
+
+def improved_trajectory(t, coefficients=coefficients_9):
+    """Return joint position, velocity and acceleration, as in Problem 6."""
     if not 0 <= t <= 8:
         raise ValueError("Time must be between 0 and 8 seconds")
-
-    segment = min(int(t // 1), 7)
-    local_t = t - segment
-
+    duration = 8 / len(coefficients)
+    segment = min(int(t / duration), len(coefficients) - 1)
+    local_t = t - segment * duration
     q_t = np.zeros(4)
-
+    dq_t = np.zeros(4)
+    ddq_t = np.zeros(4)
     for joint in range(4):
         c = coefficients[segment, joint]
         q_t[joint] = np.polynomial.polynomial.polyval(local_t, c)
+        dq_t[joint] = np.polynomial.polynomial.polyval(
+            local_t, np.polynomial.polynomial.polyder(c)
+        )
+        ddq_t[joint] = np.polynomial.polynomial.polyval(
+            local_t, np.polynomial.polynomial.polyder(c, 2)
+        )
+    return q_t, dq_t, ddq_t
 
-    return q_t
 
-
-from Part1.Problem1.main import T04
-
-# Numerical forward kinematics
+# Same sampling interval as the baseline and the report: 0.02 s.
+times = np.linspace(0, 8, 401)
 fk = sp.lambdify((q1, q2, q3, q4), T04, "numpy")
+improved_points_9 = np.array([
+    fk(*improved_trajectory(t, coefficients_9)[0])[:3, 3] for t in times
+])
+improved_points_37 = np.array([
+    fk(*improved_trajectory(t, coefficients_37)[0])[:3, 3] for t in times
+])
 
-times = np.linspace(0, 8, 801)
-
-improved_points = []
-
-for t in times:
-    q_t = improved_trajectory(t)
-    T = fk(*q_t)
-    improved_points.append(T[:3, 3])
-
-improved_points = np.array(improved_points)
-
-# Calculate distance to desired circle
-radial_error = np.abs(
-    np.sqrt(improved_points[:, 1]**2 +
-            (improved_points[:, 2] - 120)**2) - 32
-)
-
-x_error = np.abs(improved_points[:, 0] - 150)
-
-path_error = np.sqrt(radial_error**2 + x_error**2)
 
 if __name__ == "__main__":
-    print("Improved trajectory:")
-    print("Maximum radial error (mm):", np.max(radial_error))
-    print("Maximum X deviation (mm):", np.max(x_error))
-    print("Maximum path error (mm):", np.max(path_error))
+    from Part2.Problem7.main import distance_to_circle
+
+    print("More knots, same 8 s duration and quintic interpolation.")
+    print(f"Interior knot speed: {2*np.pi*32/8:.4f} mm/s")
+    print("Start/end at rest; zero joint acceleration at every knot.")
+    for n_knots, points in [(9, improved_points_9), (37, improved_points_37)]:
+        error = distance_to_circle(points)
+        print(f"\n{n_knots} knots; segment duration {8/(n_knots-1):.4f} s")
+        print(f"Maximum path error: {error.max():.6f} mm")
+        print(f"Mean path error: {error.mean():.6f} mm")
